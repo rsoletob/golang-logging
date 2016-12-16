@@ -27,7 +27,9 @@ func init() {
 	if os.Getenv("DEBUG") == "1" {
 		log.Level = logrus.DebugLevel
 	}
-	log.Formatter = &CustomFormatter{}
+	if os.Getenv("LOG_FORMAT") == "json" {
+		log.Formatter = &CustomFormatter{}
+	}
 }
 
 type Logger struct {
@@ -94,9 +96,7 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_DEBUG, format, args...).Debug()
 }
 
-
 type CustomFormatter struct {
-
 }
 
 func (f *CustomFormatter) Format(entry *logrus.Entry) ([]byte, error) {
