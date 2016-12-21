@@ -9,10 +9,12 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"net/http"
 )
 
 const (
 	LOG_TYPE_APP         = "application_log"
+	LOG_TYPE_ACCESS      = "webapp_access"
 	LOG_SEVERITY_INFO    = "info"
 	LOG_SEVERITY_DEBUG   = "debug"
 	LOG_SEVERITY_FATAL   = "fatal"
@@ -27,8 +29,8 @@ func init() {
 	if os.Getenv("DEBUG") == "1" {
 		log.Level = logrus.DebugLevel
 	}
-	if os.Getenv("LOG_FORMAT") == "json" {
-		log.Formatter = &CustomFormatter{}
+	if os.Getenv("LOG_FORMAT") != "plain" {
+		log.Formatter = &CustomJsonFormatter{}
 	}
 }
 
@@ -39,18 +41,27 @@ func New() *Logger {
 	return &Logger{}
 }
 
-func (logger *Logger) format(severity, format string, args ...interface{}) logrus.FieldLogger {
-	hostname, _ := os.Hostname()
-	_, file, line, _ := runtime.Caller(2) // skip 2 levels inside logger.go
-	return log.WithFields(logrus.Fields{
-		"log_type":    LOG_TYPE_APP,
-		"@timestamp":  time.Now().Format("2006-01-02T15:04:05.999-07:00"),
-		"severity":    severity,
-		"pid":         os.Getpid(),
-		"description": fmt.Sprintf(format, args...),
-		"server_name": hostname,
-		"class":       fmt.Sprintf("%s:%d", filepath.Base(file), line),
-	})
+type CustomJsonFormatter struct {
+}
+
+func (f *CustomJsonFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	data := make(logrus.Fields, len(entry.Data))
+	for k, v := range entry.Data {
+		switch v := v.(type) {
+		case error:
+			// Otherwise errors are ignored by `encoding/json`
+			// https://github.com/Sirupsen/logrus/issues/137
+			data[k] = v.Error()
+		default:
+			data[k] = v
+		}
+	}
+
+	serialized, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal fields to JSON, %v", err)
+	}
+	return append(serialized, '\n'), nil
 }
 
 func concatArgs(args ...interface{}) string {
@@ -96,25 +107,34 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_DEBUG, format, args...).Debug()
 }
 
-type CustomFormatter struct {
+
+
+func (logger *Logger) format(severity, format string, args ...interface{}) logrus.FieldLogger {
+	hostname, _ := os.Hostname()
+	_, file, line, _ := runtime.Caller(2) // skip 2 levels inside logger.go
+	return log.WithFields(logrus.Fields{
+		"log_type":    LOG_TYPE_APP,
+		"@timestamp":  time.Now().Format("2006-01-02T15:04:05.999-07:00"),
+		"severity":    severity,
+		"pid":         os.Getpid(),
+		"description": fmt.Sprintf(format, args...),
+		"server_name": hostname,
+		"class":       fmt.Sprintf("%s:%d", filepath.Base(file), line),
+	})
 }
 
-func (f *CustomFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	data := make(logrus.Fields, len(entry.Data))
-	for k, v := range entry.Data {
-		switch v := v.(type) {
-		case error:
-			// Otherwise errors are ignored by `encoding/json`
-			// https://github.com/Sirupsen/logrus/issues/137
-			data[k] = v.Error()
-		default:
-			data[k] = v
-		}
-	}
-
-	serialized, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to marshal fields to JSON, %v", err)
-	}
-	return append(serialized, '\n'), nil
+func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_time_ms time.Duration, res_status int, res_size int) {
+	log.WithFields(logrus.Fields{
+		"@timestamp":       time.Now().Format("2006-01-02T15:04:05.999-07:00"),
+		"log_type":         LOG_TYPE_ACCESS,
+		"remote_host":      strings.Split(req.RemoteAddr, ":")[0], // don't care about the port
+		"server_name":      strings.Split(req.Host, ":")[0],       // don't care about the port
+		"request_command":  req.Method,
+		"request_uri":      req.RequestURI,
+		"request_protocol": req.Proto,
+		"status_code":      res_status,
+		"response_time":    res_time_ms,
+		"bytes_sent":       res_size,
+		"content_type":     strings.Split(res.Header().Get("content-type"), ";")[0],
+	}).Info("")
 }
