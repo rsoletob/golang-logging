@@ -121,13 +121,13 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 
 func (logger *Logger) LogPanics() {
 	if err := recover(); err != nil {
-		log.Fatalf("%s", err)
+		logger.format(LOG_SEVERITY_FATAL, "%s", err).Fatal()
 	}
 }
 
 func (logger *Logger) CatchPanics() {
 	if err := recover(); err != nil {
-		log.Errorf("%s", err)
+		logger.format(LOG_SEVERITY_FATAL, "%s", err).Error()
 	}
 }
 
