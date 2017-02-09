@@ -20,6 +20,7 @@ const (
 	LOG_SEVERITY_FATAL   = "fatal"
 	LOG_SEVERITY_ERROR   = "error"
 	LOG_SEVERITY_WARNING = "warning"
+
 )
 
 var log *logrus.Logger
@@ -83,6 +84,14 @@ func (logger *Logger) Errorf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_ERROR, format, args...).Error()
 }
 
+func (logger *Logger) Panic(args ...interface{}) {
+	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Error()
+}
+
+func (logger *Logger) Panicf(format string, args ...interface{}) {
+	logger.format(LOG_SEVERITY_FATAL, format, args...).Error()
+}
+
 func (logger *Logger) Warning(args ...interface{}) {
 	logger.format(LOG_SEVERITY_WARNING, concatArgs(args...)).Warning()
 }
@@ -107,11 +116,10 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_DEBUG, format, args...).Debug()
 }
 
-
-
 func (logger *Logger) format(severity, format string, args ...interface{}) logrus.FieldLogger {
 	hostname, _ := os.Hostname()
 	_, file, line, _ := runtime.Caller(2) // skip 2 levels inside logger.go
+
 	return log.WithFields(logrus.Fields{
 		"log_type":    LOG_TYPE_APP,
 		"@timestamp":  time.Now().Format("2006-01-02T15:04:05.999-07:00"),
@@ -123,8 +131,8 @@ func (logger *Logger) format(severity, format string, args ...interface{}) logru
 	})
 }
 
-func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_time_ms time.Duration, res_status int, res_size int) {
-	log.WithFields(logrus.Fields{
+func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_time_ms time.Duration, res_status int, res_size int, extra map[string]interface{}) {
+	fields := logrus.Fields{
 		"@timestamp":       time.Now().Format("2006-01-02T15:04:05.999-07:00"),
 		"log_type":         LOG_TYPE_ACCESS,
 		"remote_host":      strings.Split(req.RemoteAddr, ":")[0], // don't care about the port
@@ -136,5 +144,12 @@ func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_tim
 		"response_time":    res_time_ms,
 		"bytes_sent":       res_size,
 		"content_type":     strings.Split(res.Header().Get("content-type"), ";")[0],
-	}).Info("")
+	}
+
+	if extra != nil {
+		for k, v := range extra {
+			fields[k] = v
+		}
+	}
+	log.WithFields(fields).Info("")
 }
