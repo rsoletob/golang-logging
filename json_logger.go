@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 	"net/http"
+	"runtime/debug"
 )
 
 const (
 	LOG_TYPE_APP         = "application_log"
 	LOG_TYPE_ACCESS      = "webapp_access"
-	LOG_SEVERITY_INFO    = "info"
 	LOG_SEVERITY_DEBUG   = "debug"
-	LOG_SEVERITY_FATAL   = "fatal"
-	LOG_SEVERITY_ERROR   = "error"
+	LOG_SEVERITY_INFO    = "info"
 	LOG_SEVERITY_WARNING = "warning"
-
+	LOG_SEVERITY_ERROR   = "error"
+	LOG_SEVERITY_FATAL   = "fatal"
 )
 
 var log *logrus.Logger
@@ -68,6 +68,17 @@ func (f *CustomJsonFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 func concatArgs(args ...interface{}) string {
 	return strings.TrimRight(fmt.Sprintln(args...), "\n")
 }
+
+func (logger *Logger) Panic(args ...interface{}) {
+	// fallback to Fatal(), since we log the stacktrace already
+	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Fatal()
+}
+
+func (logger *Logger) Panicf(format string, args ...interface{}) {
+	// fallback to Fatal(), since we log the stacktrace already
+	logger.format(LOG_SEVERITY_FATAL, format, args...).Fatal()
+}
+
 func (logger *Logger) Fatal(args ...interface{}) {
 	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Fatal()
 }
@@ -82,14 +93,6 @@ func (logger *Logger) Error(args ...interface{}) {
 
 func (logger *Logger) Errorf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_ERROR, format, args...).Error()
-}
-
-func (logger *Logger) Panic(args ...interface{}) {
-	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Error()
-}
-
-func (logger *Logger) Panicf(format string, args ...interface{}) {
-	logger.format(LOG_SEVERITY_FATAL, format, args...).Error()
 }
 
 func (logger *Logger) Warning(args ...interface{}) {
@@ -116,9 +119,27 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_DEBUG, format, args...).Debug()
 }
 
+func (logger *Logger) LogPanics() {
+	if err := recover(); err != nil {
+		log.Fatalf("%s", err)
+	}
+}
+
+func (logger *Logger) CatchPanics() {
+	if err := recover(); err != nil {
+		log.Errorf("%s", err)
+	}
+}
+
 func (logger *Logger) format(severity, format string, args ...interface{}) logrus.FieldLogger {
 	hostname, _ := os.Hostname()
 	_, file, line, _ := runtime.Caller(2) // skip 2 levels inside logger.go
+
+	stacktrace := ""
+	if (LOG_SEVERITY_ERROR == severity || LOG_SEVERITY_FATAL == severity) {
+		// in case of error or fatal add stacktrace to log
+		stacktrace = string(debug.Stack());
+	}
 
 	return log.WithFields(logrus.Fields{
 		"log_type":    LOG_TYPE_APP,
@@ -128,10 +149,11 @@ func (logger *Logger) format(severity, format string, args ...interface{}) logru
 		"description": fmt.Sprintf(format, args...),
 		"server_name": hostname,
 		"class":       fmt.Sprintf("%s:%d", filepath.Base(file), line),
+		"stacktrace":  stacktrace,
 	})
 }
 
-func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_time_ms time.Duration, res_status int, res_size int, extra map[string]interface{}) {
+func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_time_ms time.Duration, res_status int, res_size int, extra_fields ... map[string]interface{}) {
 	fields := logrus.Fields{
 		"@timestamp":       time.Now().Format("2006-01-02T15:04:05.999-07:00"),
 		"log_type":         LOG_TYPE_ACCESS,
@@ -146,10 +168,12 @@ func (logger *Logger) Access(req *http.Request, res http.ResponseWriter, res_tim
 		"content_type":     strings.Split(res.Header().Get("content-type"), ";")[0],
 	}
 
-	if extra != nil {
-		for k, v := range extra {
+	// crawl through all extra field maps if any
+	for _, m := range extra_fields {
+		for k, v := range m {
 			fields[k] = v
 		}
 	}
+
 	log.WithFields(fields).Info("")
 }
