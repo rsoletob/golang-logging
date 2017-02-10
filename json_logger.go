@@ -69,16 +69,6 @@ func concatArgs(args ...interface{}) string {
 	return strings.TrimRight(fmt.Sprintln(args...), "\n")
 }
 
-func (logger *Logger) Panic(args ...interface{}) {
-	// fallback to Fatal(), since we log the stacktrace already
-	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Fatal()
-}
-
-func (logger *Logger) Panicf(format string, args ...interface{}) {
-	// fallback to Fatal(), since we log the stacktrace already
-	logger.format(LOG_SEVERITY_FATAL, format, args...).Fatal()
-}
-
 func (logger *Logger) Fatal(args ...interface{}) {
 	logger.format(LOG_SEVERITY_FATAL, concatArgs(args...)).Fatal()
 }
@@ -119,15 +109,12 @@ func (logger *Logger) Debugf(format string, args ...interface{}) {
 	logger.format(LOG_SEVERITY_DEBUG, format, args...).Debug()
 }
 
-func (logger *Logger) LogPanics() {
-	if err := recover(); err != nil {
-		logger.format(LOG_SEVERITY_FATAL, "%s", err).Fatal()
-	}
-}
-
-func (logger *Logger) CatchPanics() {
+func (logger *Logger) CatchPanics(panic_handlers ...func()) {
 	if err := recover(); err != nil {
 		logger.format(LOG_SEVERITY_FATAL, "%s", err).Error()
+		for _, panic_handler := range panic_handlers {
+			panic_handler()
+		}
 	}
 }
 
