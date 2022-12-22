@@ -3,7 +3,7 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"runtime"
